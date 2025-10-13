@@ -1,0 +1,106 @@
+# ==================== FRONTEND (Vite/React) ====================
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies
+node_modules
+
+# Build outputs
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+
+# ==================== BACKEND (Python/Flask) ====================
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+
+# Flask
+instance/
+.webassets-cache
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Build artifacts
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Database migrations (uncomment if using Alembic/Flask-Migrate without version control)
+# migrations/
+
+
+# ==================== PROJECT SPECIFIC ====================
+# Uploaded files (student photos, etc.)
+uploads/
+images/*.jpg
+images/*.jpeg
+images/*.png
+images/*.gif
+
+# Keep folder structure but ignore images
+!images/.gitkeep
+!uploads/.gitkeep
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+
