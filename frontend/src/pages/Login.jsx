@@ -18,36 +18,40 @@ export default function Login({ setAuth }) {
     try {
       const { data } = await api.post('/auth/login', { email, password })
       
-      console.log('✅ Login successful:', data)
+      console.log('✅ Login Response:', data)
+      
+      // ✅ CRITICAL FIX: Check if token exists
+      if (!data.access_token) {
+        throw new Error('No access token received from server')
+      }
       
       // Save to localStorage
       localStorage.setItem('token', data.access_token)
       localStorage.setItem('user', JSON.stringify(data.user))
       localStorage.setItem('role', data.user.role)
       
-      console.log('✅ Saved role:', data.user.role)
+      console.log('✅ Token saved:', data.access_token.substring(0, 20) + '...')
+      console.log('✅ Role saved:', data.user.role)
       
       // Update auth state WITH role
       if (typeof setAuth === 'function') {
-        setAuth(true, data.user.role)  // ✅ Pass role as second parameter
+        setAuth(true, data.user.role)
       }
       
-      // Small delay to ensure state updates
-      setTimeout(() => {
-        if (data.user.role === 'teacher') {
-          console.log('🔄 Redirecting to teacher dashboard...')
-          navigate('/teacher/dashboard')
-        } else if (data.user.role === 'student') {
-          console.log('🔄 Redirecting to student dashboard...')
-          navigate('/student/dashboard')
-        } else {
-          navigate('/dashboard')
-        }
-      }, 100)
+      // Navigate based on role
+      if (data.user.role === 'teacher') {
+        console.log('🔄 Redirecting to teacher dashboard...')
+        navigate('/teacher/dashboard', { replace: true })
+      } else if (data.user.role === 'student') {
+        console.log('🔄 Redirecting to student dashboard...')
+        navigate('/student/dashboard', { replace: true })
+      } else {
+        navigate('/dashboard', { replace: true })
+      }
       
     } catch (err) {
-      console.error('❌ Login failed:', err)
-      setError(err.response?.data?.message || 'Login failed. Please try again.')
+      console.error('❌ Login Error:', err)
+      setError(err.response?.data?.message || err.message || 'Login failed. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -153,7 +157,7 @@ export default function Login({ setAuth }) {
         </p>
         
         <div style={{ marginTop: 16, padding: 12, background: '#f3f4f6', borderRadius: 6, fontSize: 12 }}>
-          <strong>Test Accounts:</strong><br/>
+          <strong>Test Account:</strong><br/>
           Teacher: nidhi@college.edu / teacher123
         </div>
       </div>

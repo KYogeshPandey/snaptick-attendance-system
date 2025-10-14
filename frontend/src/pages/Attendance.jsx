@@ -1,6 +1,7 @@
-// frontend/src/pages/Attendance.jsx - FINAL WITH LOADING SPINNER
-import { useState, useEffect, useRef } from 'react'
+// frontend/src/pages/Attendance.jsx - WITH DATE FILTER & ESLINT FIX
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { api } from '../services/api'
+
 
 export default function Attendance() {
   // Basic states
@@ -21,6 +22,7 @@ export default function Attendance() {
   const canvasRef = useRef(null)
   const streamRef = useRef(null)
 
+
   useEffect(() => {
     loadClassrooms()
     
@@ -29,11 +31,71 @@ export default function Attendance() {
     }
   }, [])
 
-  useEffect(() => {
-    if (selectedClassroom) {
-      loadStudents(selectedClassroom)
+
+  // ✅ FIXED: Load attendance for specific date (wrapped in useCallback)
+  const loadAttendanceForDate = useCallback(async (classroomId, date) => {
+    try {
+      setLoadingStudents(true)
+      console.log(`📅 Loading attendance for classroom ${classroomId} on ${date}`)
+      
+      // Fetch attendance records for the selected date
+      const { data: attendanceRecords } = await api.get(`/attendance/${classroomId}`, {
+        params: { date }
+      })
+      
+      // If attendance exists for this date, use it
+      if (attendanceRecords && attendanceRecords.length > 0) {
+        console.log('✅ Found existing attendance:', attendanceRecords.length)
+        setAttendanceData(attendanceRecords.map(record => ({
+          student_id: record.student_id,
+          name: record.student_name,
+          roll_no: record.roll_no,
+          status: record.status
+        })))
+      } else {
+        // Otherwise, load all students with default 'absent' status
+        console.log('📝 No attendance found, loading students...')
+        const { data: students } = await api.get(`/students/classroom/${classroomId}`)
+        
+        const attendance = students.map(student => ({
+          student_id: student.id,
+          name: student.name,
+          roll_no: student.roll_no,
+          status: 'absent'
+        }))
+        
+        setAttendanceData(attendance)
+      }
+      
+    } catch (e) {
+      console.error('Failed to load attendance:', e)
+      // Fallback: Load students only
+      try {
+        const { data: students } = await api.get(`/students/classroom/${classroomId}`)
+        const attendance = students.map(student => ({
+          student_id: student.id,
+          name: student.name,
+          roll_no: student.roll_no,
+          status: 'absent'
+        }))
+        setAttendanceData(attendance)
+      } catch (err) {
+        console.error('Failed to load students:', err)
+        setAttendanceData([])
+      }
+    } finally {
+      setLoadingStudents(false)
     }
-  }, [selectedClassroom])
+  }, []) // ✅ Empty deps since classroomId and date are parameters
+
+
+  // ✅ FIXED: Load attendance when classroom or date changes
+  useEffect(() => {
+    if (selectedClassroom && currentDate) {
+      loadAttendanceForDate(selectedClassroom, currentDate)
+    }
+  }, [selectedClassroom, currentDate, loadAttendanceForDate]) // ✅ All dependencies included
+
 
   const loadClassrooms = async () => {
     try {
@@ -48,25 +110,6 @@ export default function Attendance() {
     }
   }
 
-  const loadStudents = async (classroomId) => {
-    try {
-      setLoadingStudents(true)
-      const { data } = await api.get(`/students/classroom/${classroomId}`)
-      
-      const attendance = data.map(student => ({
-        student_id: student.id,
-        name: student.name,
-        roll_no: student.roll_no,
-        status: 'absent'
-      }))
-      
-      setAttendanceData(attendance)
-    } catch (e) {
-      console.error('Failed to load students:', e)
-    } finally {
-      setLoadingStudents(false)
-    }
-  }
 
   // ==================== CAMERA FUNCTIONS ====================
   
@@ -129,6 +172,7 @@ export default function Attendance() {
     }
   }
 
+
   const stopCamera = () => {
     console.log('🛑 Stopping camera...')
     if (streamRef.current) {
@@ -143,6 +187,7 @@ export default function Attendance() {
     }
     setCameraActive(false)
   }
+
 
   const capturePhoto = () => {
     console.log('📸 Capturing photo...')
@@ -170,16 +215,19 @@ export default function Attendance() {
     }, 'image/jpeg', 0.95)
   }
 
+
   const recognizeFaces = async (imageFile) => {
     if (!imageFile) {
       alert('❌ No image selected')
       return
     }
 
+
     if (!selectedClassroom) {
       alert('❌ Please select a classroom first')
       return
     }
+
 
     try {
       setRecognizing(true)
@@ -226,6 +274,7 @@ export default function Attendance() {
     }
   }
 
+
   const handleFileUpload = (e) => {
     const file = e.target.files[0]
     if (file) {
@@ -234,6 +283,7 @@ export default function Attendance() {
       console.log('📁 File uploaded:', file.name)
     }
   }
+
 
   // ==================== ATTENDANCE FUNCTIONS ====================
   
@@ -245,21 +295,25 @@ export default function Attendance() {
     ))
   }
 
+
   const markAllPresent = () => {
     setAttendanceData(prev => prev.map(student => ({ ...student, status: 'present' })))
     console.log('✅ Marked all students present')
   }
+
 
   const markAllAbsent = () => {
     setAttendanceData(prev => prev.map(student => ({ ...student, status: 'absent' })))
     console.log('❌ Marked all students absent')
   }
 
+
   const saveAttendance = async () => {
     if (!attendanceData.length) {
       alert('❌ No attendance data to save!')
       return
     }
+
 
     const presentCount = attendanceData.filter(s => s.status === 'present').length
     
@@ -268,6 +322,7 @@ export default function Attendance() {
       if (!confirm) return
     }
 
+
     try {
       setSaving(true)
       
@@ -275,6 +330,7 @@ export default function Attendance() {
         student_id: student.student_id,
         status: student.status
       }))
+
 
       const payload = {
         classroom_id: parseInt(selectedClassroom),
@@ -295,6 +351,9 @@ export default function Attendance() {
         setCapturedImage(null)
       }
       
+      // ✅ Reload attendance to show saved data
+      loadAttendanceForDate(selectedClassroom, currentDate)
+      
     } catch (e) {
       console.error('❌ Failed to save attendance:', e)
       alert('❌ Failed to save attendance!\n\n' + (e.response?.data?.message || e.message))
@@ -303,13 +362,16 @@ export default function Attendance() {
     }
   }
 
+
   const getClassroomName = () => {
     const classroom = classrooms.find(c => c.id === parseInt(selectedClassroom))
     return classroom ? `${classroom.name} - ${classroom.subject}` : 'No classroom selected'
   }
 
+
   const presentCount = attendanceData.filter(s => s.status === 'present').length
   const absentCount = attendanceData.length - presentCount
+
 
   // ==================== RENDER ====================
   
@@ -318,6 +380,7 @@ export default function Attendance() {
       <h2 style={{ marginBottom: 24, fontSize: 28, fontWeight: 700 }}>
         📸 Mark Attendance with Face Recognition
       </h2>
+
 
       {/* Classroom & Date Selection */}
       <div style={{ marginBottom: 24, padding: 20, background: '#fff', borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
@@ -346,6 +409,7 @@ export default function Attendance() {
             </select>
           </div>
 
+
           <div>
             <label style={{ display: 'block', marginBottom: 8, fontWeight: 500, fontSize: 14 }}>
               Date:
@@ -365,13 +429,18 @@ export default function Attendance() {
           </div>
         </div>
 
+
         <div style={{ padding: 16, background: '#dbeafe', borderRadius: 8, border: '1px solid #60a5fa' }}>
           <strong style={{ fontSize: 15 }}>📚 {getClassroomName()}</strong>
           <span style={{ marginLeft: 16, color: '#1e40af' }}>
             | 👥 <strong>{attendanceData.length}</strong> Students
           </span>
+          <span style={{ marginLeft: 16, color: '#1e40af' }}>
+            | 📅 <strong>{currentDate}</strong>
+          </span>
         </div>
       </div>
+
 
       {/* Camera Section */}
       <div style={{ marginBottom: 24, padding: 20, background: '#fff', borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
@@ -400,6 +469,7 @@ export default function Attendance() {
               📷 Open Camera
             </button>
 
+
             <label style={{
               padding: '14px 28px',
               background: '#10b981',
@@ -421,6 +491,7 @@ export default function Attendance() {
             </label>
           </div>
         )}
+
 
         {/* Camera Preview */}
         <div style={{ display: cameraActive ? 'block' : 'none' }}>
@@ -476,6 +547,7 @@ export default function Attendance() {
           </div>
         </div>
 
+
         {/* Captured Image */}
         {capturedImage && !recognizing && (
           <div>
@@ -530,6 +602,7 @@ export default function Attendance() {
           </div>
         )}
 
+
         {/* Recognition Loading Spinner */}
         {recognizing && (
           <div style={{ 
@@ -563,8 +636,10 @@ export default function Attendance() {
           </div>
         )}
 
+
         <canvas ref={canvasRef} style={{ display: 'none' }} />
       </div>
+
 
       {/* Quick Actions */}
       {attendanceData.length > 0 && (
@@ -618,6 +693,7 @@ export default function Attendance() {
         </div>
       )}
 
+
       {/* Summary Cards */}
       {attendanceData.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
@@ -637,6 +713,7 @@ export default function Attendance() {
           </div>
         </div>
       )}
+
 
       {/* Loading */}
       {loadingStudents && (
@@ -665,6 +742,7 @@ export default function Attendance() {
           `}</style>
         </div>
       )}
+
 
       {/* Table */}
       {!loadingStudents && attendanceData.length > 0 && (
@@ -720,6 +798,7 @@ export default function Attendance() {
           </table>
         </div>
       )}
+
 
       {!loadingStudents && attendanceData.length === 0 && (
         <div style={{ textAlign: 'center', padding: 60, background: '#fff', borderRadius: 12 }}>

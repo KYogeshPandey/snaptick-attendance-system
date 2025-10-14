@@ -7,6 +7,7 @@ from datetime import datetime, date
 import pandas as pd
 from io import BytesIO
 
+
 attendance_bp = Blueprint('attendance', __name__, url_prefix='/api/attendance')
 
 
@@ -110,16 +111,19 @@ def mark_attendance():
     }), 201
 
 
-# ==================== GET ATTENDANCE BY DATE ====================
-@attendance_bp.route('/classroom/<int:classroom_id>', methods=['GET'])
+# ==================== GET ATTENDANCE BY CLASSROOM & DATE ====================
+@attendance_bp.route('/<int:classroom_id>', methods=['GET'])
 @teacher_required
 def get_attendance_by_classroom(classroom_id):
     """
-    Get attendance for a classroom
-    Query params: ?date=2025-10-12 (optional)
+    Get attendance for a classroom and specific date
+    Query params: ?date=2025-10-12
+    
+    ✅ UPDATED: Returns saved attendance with student details
+    If no date provided or no records found, returns empty array
     """
     user_id = get_jwt_identity()
-    attendance_date = request.args.get('date')
+    attendance_date = request.args.get('date')  # ✅ Get date from query params
     
     # Verify classroom belongs to teacher
     classroom = Classroom.query.get(classroom_id)
@@ -130,17 +134,63 @@ def get_attendance_by_classroom(classroom_id):
     if classroom.teacher_id != int(user_id):
         return jsonify({"message": "Access denied"}), 403
     
-    # Build query
-    query = Attendance.query.filter_by(classroom_id=classroom_id)
+    # ✅ If no date provided, return empty array (frontend will handle)
+    if not attendance_date:
+        return jsonify([]), 200
     
-    if attendance_date:
-        try:
-            date_obj = datetime.strptime(attendance_date, '%Y-%m-%d').date()
-            query = query.filter_by(date=date_obj)
-        except ValueError:
-            return jsonify({"message": "Invalid date format"}), 400
+    # ✅ Parse date
+    try:
+        date_obj = datetime.strptime(attendance_date, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({"message": "Invalid date format. Use YYYY-MM-DD"}), 400
     
-    records = query.all()
+    # ✅ Get attendance records for specific date
+    records = Attendance.query.filter_by(
+        classroom_id=classroom_id,
+        date=date_obj
+    ).all()
+    
+    # ✅ If no records found, return empty array
+    if not records:
+        return jsonify([]), 200
+    
+    # ✅ Build response with student details
+    result = []
+    for r in records:
+        result.append({
+            "id": r.id,
+            "student_id": r.student_id,
+            "student_name": r.student.name,
+            "roll_no": r.student.roll_no,
+            "date": r.date.isoformat(),
+            "status": r.status,
+            "marked_at": r.marked_at.isoformat() if hasattr(r, 'marked_at') else None
+        })
+    
+    return jsonify(result), 200
+
+
+# ==================== GET ATTENDANCE HISTORY (OPTIONAL) ====================
+@attendance_bp.route('/classroom/<int:classroom_id>/history', methods=['GET'])
+@teacher_required
+def get_attendance_history(classroom_id):
+    """
+    Get all attendance records for a classroom (without date filter)
+    Useful for analytics/reports
+    """
+    user_id = get_jwt_identity()
+    
+    # Verify classroom
+    classroom = Classroom.query.get(classroom_id)
+    
+    if not classroom:
+        return jsonify({"message": "Classroom not found"}), 404
+    
+    if classroom.teacher_id != int(user_id):
+        return jsonify({"message": "Access denied"}), 403
+    
+    # Get all records
+    records = Attendance.query.filter_by(classroom_id=classroom_id).order_by(Attendance.date.desc()).all()
     
     return jsonify([{
         "id": r.id,
@@ -149,7 +199,7 @@ def get_attendance_by_classroom(classroom_id):
         "student_roll_no": r.student.roll_no,
         "date": r.date.isoformat(),
         "status": r.status,
-        "marked_at": r.marked_at.isoformat()
+        "marked_at": r.marked_at.isoformat() if hasattr(r, 'marked_at') else None
     } for r in records]), 200
 
 
@@ -199,7 +249,7 @@ def export_to_excel():
         "Name": r.student.name,
         "Roll No": r.student.roll_no,
         "Status": r.status.upper(),
-        "Marked At": r.marked_at.strftime('%Y-%m-%d %H:%M:%S')
+        "Marked At": r.marked_at.strftime('%Y-%m-%d %H:%M:%S') if hasattr(r, 'marked_at') else 'N/A'
     } for idx, r in enumerate(records)]
     
     df = pd.DataFrame(data_rows)
