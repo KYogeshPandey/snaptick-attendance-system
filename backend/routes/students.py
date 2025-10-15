@@ -8,18 +8,25 @@ from extensions import db
 import pandas as pd
 import os
 import zipfile
+import json  # ✅ PHASE 1
+from utils.face_utils import get_face_encodings_with_alignment  # ✅ PHASE 1
+
 
 student_bp = Blueprint('student', __name__, url_prefix='/api/students')
+
 
 ALLOWED_EXTENSIONS = {'xlsx', 'xls'}
 ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png'}
 UPLOAD_FOLDER = 'images'
 
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+
 def allowed_image_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_IMAGE_EXTENSIONS
+
 
 def teacher_required(fn):
     """Custom decorator to ensure user is a teacher"""
@@ -35,6 +42,7 @@ def teacher_required(fn):
             return jsonify({"message": "Teacher access required"}), 403
         return fn(*args, **kwargs)
     return wrapper
+
 
 # ==================== GET STUDENTS BY CLASSROOM ====================
 @student_bp.route('/classroom/<int:classroom_id>', methods=['GET'])
@@ -54,10 +62,12 @@ def get_students_by_classroom(classroom_id):
         "email": s.email,
         "roll_no": s.roll_no,
         "photo_path": s.photo_path,
-        "has_photo": s.photo_path is not None and s.photo_path != ''
+        "has_photo": s.photo_path is not None and s.photo_path != '',
+        "has_encoding": s.encodings is not None and s.encodings != ''  # ✅ PHASE 1
     } for s in students]), 200
 
-# ==================== BULK UPLOAD STUDENTS (EXCEL) - OPTION 1 ====================
+
+# ==================== BULK UPLOAD STUDENTS (EXCEL) ====================
 @student_bp.route('/bulk-upload', methods=['POST', 'OPTIONS'])
 @cross_origin(origins=["http://localhost:5173"], supports_credentials=True)
 @teacher_required
@@ -93,12 +103,11 @@ def bulk_upload_students():
     try:
         df = pd.read_excel(file)
         
-        # ✅ Normalize column names
+        # Normalize column names
         df.columns = df.columns.str.strip().str.replace('_', ' ').str.title()
         
         print(f"[DEBUG] Excel columns: {list(df.columns)}")
         
-        # ✅ UPDATED: Only 3 columns required (NO Photo Path)
         required_columns = ['Name', 'Email', 'Roll No']
         
         missing_columns = [col for col in required_columns if col not in df.columns]
@@ -125,13 +134,13 @@ def bulk_upload_students():
                     })
                     continue
                 
-                # ✅ OPTION 1: Create student WITHOUT photo_path
-                # Photo will be set later via ZIP upload
+                # Create student WITHOUT photo initially
                 new_student = Student(
                     name=str(row['Name']),
                     email=str(row['Email']),
                     roll_no=str(row['Roll No']),
-                    photo_path=None,  # ✅ Initially None - ZIP upload will set it
+                    photo_path=None,
+                    encodings=None,  # ✅ PHASE 1: Will be set after ZIP upload
                     classroom_id=classroom_id
                 )
                 
@@ -160,14 +169,16 @@ def bulk_upload_students():
         print(f"[ERROR] Excel processing failed: {str(e)}")
         return jsonify({"message": f"Error processing file: {str(e)}"}), 500
 
-# ==================== UPLOAD PHOTOS ZIP ====================
+
+# ==================== ✅ PHASE 1: UPLOAD PHOTOS ZIP WITH AUTO-ENCODING ====================
 @student_bp.route('/upload-photos-zip', methods=['POST', 'OPTIONS'])
 @cross_origin(origins=["http://localhost:5173"], supports_credentials=True)
 @teacher_required
 def upload_photos_zip():
     """
-    Upload a ZIP file containing student photos
+    Phase 1: Upload a ZIP file containing student photos
     Photos will be matched by Roll No or Name
+    ✅ Auto-generates face encodings for matched students
     """
     try:
         if 'file' not in request.files:
@@ -197,6 +208,8 @@ def upload_photos_zip():
         
         uploaded_count = 0
         matched_count = 0
+        encoding_success = 0  # ✅ PHASE 1
+        encoding_failed = 0   # ✅ PHASE 1
         unmatched = []
         
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
@@ -232,6 +245,21 @@ def upload_photos_zip():
                     relative_path = os.path.basename(file_name)
                     student.photo_path = relative_path
                     matched_count += 1
+                    
+                    # ✅ PHASE 1: Generate face encodings
+                    full_image_path = os.path.join(images_dir, relative_path)
+                    print(f"🔄 Generating encodings for {student.name}...")
+                    
+                    encodings_list, error = get_face_encodings_with_alignment(full_image_path, num_jitters=1)
+                    
+                    if encodings_list and not error:
+                        student.encodings = json.dumps(encodings_list)
+                        encoding_success += 1
+                        print(f"  ✅ {len(encodings_list)} encoding(s) generated for {student.name}")
+                    else:
+                        encoding_failed += 1
+                        print(f"  ⚠️ Encoding failed for {student.name}: {error}")
+                    
                     print(f"✅ Matched: {file_name} → {student.name} (Roll: {student.roll_no})")
                 else:
                     unmatched.append(file_name)
@@ -245,15 +273,20 @@ def upload_photos_zip():
             pass
         
         return jsonify({
-            "message": f"✅ Upload complete: {matched_count}/{uploaded_count} photos matched",
+            "message": f"✅ Upload complete: {matched_count}/{uploaded_count} photos matched, {encoding_success} encodings generated",
             "uploaded": uploaded_count,
             "matched": matched_count,
+            "encoding_success": encoding_success,  # ✅ PHASE 1
+            "encoding_failed": encoding_failed,    # ✅ PHASE 1
             "unmatched": unmatched
         }), 201
         
     except Exception as e:
         print(f"[ERROR] ZIP upload failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"message": f"Upload failed: {str(e)}"}), 500
+
 
 # ==================== UPDATE STUDENT ====================
 @student_bp.route('/<int:student_id>', methods=['PUT'])
@@ -286,6 +319,7 @@ def update_student(student_id):
             "roll_no": student.roll_no
         }
     }), 200
+
 
 # ==================== DELETE STUDENT ====================
 @student_bp.route('/<int:student_id>', methods=['DELETE'])

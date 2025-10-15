@@ -1,14 +1,16 @@
-# backend/routes/analytics.py
+# backend/routes/analytics.py - PHASE 5: ENHANCED WITH HEATMAP
 from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from extensions import db
 from models import Attendance, Student, Classroom, User
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from sqlalchemy import func
 import pandas as pd
 import io
 
+
 analytics_bp = Blueprint('analytics', __name__, url_prefix='/api/analytics')
+
 
 def teacher_required(fn):
     """Custom decorator to ensure user is a teacher"""
@@ -24,6 +26,151 @@ def teacher_required(fn):
             return jsonify({"message": "Teacher access required"}), 403
         return fn(*args, **kwargs)
     return wrapper
+
+
+# ==================== ✅ NEW: GITHUB-STYLE HEATMAP ====================
+@analytics_bp.get('/heatmap')
+@teacher_required
+def get_attendance_heatmap():
+    """
+    Get GitHub-style attendance heatmap for last 30/60/90 days
+    Returns daily attendance percentage with color intensity
+    """
+    try:
+        teacher_id = int(get_jwt_identity())
+        classroom_id = request.args.get('classroom_id')
+        days = int(request.args.get('days', 30))  # Default: 30 days
+        
+        # Validate classroom ownership
+        if not classroom_id:
+            return jsonify({"message": "Classroom ID required"}), 400
+        
+        classroom = Classroom.query.filter_by(id=classroom_id, teacher_id=teacher_id).first()
+        if not classroom:
+            return jsonify({"message": "Classroom not found or access denied"}), 404
+        
+        # Get total students in classroom
+        total_students = Student.query.filter_by(classroom_id=classroom_id).count()
+        
+        if total_students == 0:
+            return jsonify({
+                "classroom_id": int(classroom_id),
+                "classroom_name": classroom.name,
+                "total_students": 0,
+                "date_range": {"start": None, "end": None},
+                "heatmap": [],
+                "stats": {"avg_attendance": 0, "total_days": 0, "best_day": None, "worst_day": None}
+            }), 200
+        
+        # Calculate date range
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days - 1)
+        
+        # Query attendance grouped by date
+        attendance_by_date = db.session.query(
+            Attendance.date,
+            func.count(Attendance.id).label('total_marked'),
+            func.sum(db.case((Attendance.status == 'present', 1), else_=0)).label('present_count')
+        ).filter(
+            Attendance.classroom_id == classroom_id,
+            Attendance.date >= start_date,
+            Attendance.date <= end_date
+        ).group_by(Attendance.date).all()
+        
+        # Build date-to-stats mapping
+        date_stats = {}
+        for record in attendance_by_date:
+            att_date = record.date
+            present = int(record.present_count or 0)
+            total_marked = int(record.total_marked or 0)
+            percentage = round((present / total_students) * 100, 1)
+            
+            # Color intensity based on percentage
+            # 🟩 90-100% = high (level 4)
+            # 🟨 70-89% = medium-high (level 3)
+            # 🟧 50-69% = medium (level 2)
+            # 🟥 <50% = low (level 1)
+            # ⬜ No data = none (level 0)
+            
+            if percentage >= 90:
+                intensity = 4
+                color = 'high'
+            elif percentage >= 70:
+                intensity = 3
+                color = 'medium-high'
+            elif percentage >= 50:
+                intensity = 2
+                color = 'medium'
+            else:
+                intensity = 1
+                color = 'low'
+            
+            date_stats[att_date.isoformat()] = {
+                'date': att_date.isoformat(),
+                'day_of_week': att_date.strftime('%a'),  # Mon, Tue, Wed
+                'present': present,
+                'total_students': total_students,
+                'total_marked': total_marked,
+                'percentage': percentage,
+                'intensity': intensity,
+                'color': color
+            }
+        
+        # Generate complete heatmap (fill missing dates)
+        heatmap = []
+        current_date = start_date
+        
+        while current_date <= end_date:
+            date_str = current_date.isoformat()
+            day_name = current_date.strftime('%a')
+            
+            if date_str in date_stats:
+                heatmap.append(date_stats[date_str])
+            else:
+                # No attendance marked on this day
+                heatmap.append({
+                    'date': date_str,
+                    'day_of_week': day_name,
+                    'present': 0,
+                    'total_students': total_students,
+                    'total_marked': 0,
+                    'percentage': 0,
+                    'intensity': 0,
+                    'color': 'none'
+                })
+            
+            current_date += timedelta(days=1)
+        
+        # Calculate summary stats
+        valid_days = [d for d in heatmap if d['total_marked'] > 0]
+        
+        stats = {
+            'total_days': len(heatmap),
+            'marked_days': len(valid_days),
+            'avg_attendance': round(sum([d['percentage'] for d in valid_days]) / len(valid_days), 1) if valid_days else 0,
+            'best_day': max(valid_days, key=lambda x: x['percentage']) if valid_days else None,
+            'worst_day': min(valid_days, key=lambda x: x['percentage']) if valid_days else None
+        }
+        
+        return jsonify({
+            "classroom_id": int(classroom_id),
+            "classroom_name": classroom.name,
+            "total_students": total_students,
+            "date_range": {
+                "start": start_date.isoformat(),
+                "end": end_date.isoformat(),
+                "days": days
+            },
+            "heatmap": heatmap,
+            "stats": stats
+        }), 200
+        
+    except Exception as e:
+        print(f"❌ Heatmap error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "Failed to generate heatmap", "error": str(e)}), 500
+
 
 # ==================== OVERVIEW STATISTICS ====================
 @analytics_bp.get('/overview')
@@ -69,6 +216,7 @@ def get_overview():
         print(f"[ERROR] Analytics overview failed: {str(e)}")
         return jsonify({"message": "Failed to fetch analytics", "error": str(e)}), 500
 
+
 # ==================== DATE-WISE ATTENDANCE TREND ====================
 @analytics_bp.get('/trend')
 @teacher_required
@@ -103,7 +251,7 @@ def get_trend():
         trend_data = []
         for date, stats in sorted(date_stats.items()):
             trend_data.append({
-                "date": date,
+                "date": str(date),
                 "present": stats["present"],
                 "absent": stats["absent"],
                 "total": stats["total"],
@@ -113,6 +261,7 @@ def get_trend():
     except Exception as e:
         print(f"[ERROR] Trend analysis failed: {str(e)}")
         return jsonify({"message": "Failed to fetch trend", "error": str(e)}), 500
+
 
 # ==================== STUDENT-WISE ATTENDANCE ====================
 @analytics_bp.get('/students')
@@ -150,6 +299,7 @@ def get_student_analytics():
         print(f"[ERROR] Student analytics failed: {str(e)}")
         return jsonify({"message": "Failed to fetch student analytics", "error": str(e)}), 500
 
+
 # ==================== CLASSROOM COMPARISON ====================
 @analytics_bp.get('/classrooms')
 @teacher_required
@@ -177,11 +327,12 @@ def get_classroom_comparison():
                 "absent": total - present,
                 "attendance_rate": round((present / total * 100) if total > 0 else 0, 2)
             })
-        result.sort(key=lambda x: x['attendance_rate'])
+        result.sort(key=lambda x: x['attendance_rate'], reverse=True)
         return jsonify(result), 200
     except Exception as e:
         print(f"[ERROR] Classroom comparison failed: {str(e)}")
         return jsonify({"message": "Failed to fetch classroom comparison", "error": str(e)}), 500
+
 
 # ==================== EXPORT EXCEL ====================
 @analytics_bp.get('/export-excel')
@@ -215,7 +366,7 @@ def export_excel():
             'Date': str(r.date),
             'Student Name': r.name,
             'Roll No': r.roll_no,
-            'Status': r.status,
+            'Status': r.status.upper(),
             'Classroom': r.classroom
         } for r in results])
         
