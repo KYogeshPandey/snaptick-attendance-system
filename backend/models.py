@@ -1,7 +1,6 @@
-# backend/models.py
+# backend/models.py - CLEAN VERSION (NO AUDIT LOG)
 from extensions import db
 from datetime import datetime
-
 
 class User(db.Model):
     __tablename__ = 'users'
@@ -9,12 +8,12 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
-    password = db.Column(db.String(200), nullable=False)  # Hashed password
+    password = db.Column(db.String(200), nullable=False)
     
-    # ✅ Role-based access
-    role = db.Column(db.String(20), nullable=False, default='teacher')  # 'teacher' or 'student'
+    # Role-based access
+    role = db.Column(db.String(20), nullable=False, default='teacher')
     phone_number = db.Column(db.String(15), nullable=True)
-    subject_taught = db.Column(db.String(100), nullable=True)  # Only for teachers
+    subject_taught = db.Column(db.String(100), nullable=True)
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
@@ -32,10 +31,10 @@ class Classroom(db.Model):
     name = db.Column(db.String(100), nullable=False)
     subject = db.Column(db.String(100), nullable=False)
     
-    # ✅ Additional metadata
-    branch = db.Column(db.String(50), nullable=True)  # CSE, ECE, ME etc.
-    section = db.Column(db.String(10), nullable=True)  # A, B, C
-    semester = db.Column(db.Integer, nullable=True)  # 1-8
+    # Additional metadata
+    branch = db.Column(db.String(50), nullable=True)
+    section = db.Column(db.String(10), nullable=True)
+    semester = db.Column(db.Integer, nullable=True)
     
     teacher_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -57,10 +56,10 @@ class Student(db.Model):
     roll_no = db.Column(db.String(50), nullable=False)
     photo_path = db.Column(db.String(200), nullable=True)
     
-    # ✅ NEW: Multi-encoding storage for Phase 1 accuracy improvement
-    encodings = db.Column(db.Text, nullable=True)  # JSON string: [encoding1, encoding2, ...]
+    # Multi-encoding storage for accuracy
+    encodings = db.Column(db.Text, nullable=True)
     
-    # ✅ Student login capability
+    # Student login capability
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     
     classroom_id = db.Column(db.Integer, db.ForeignKey('classrooms.id'), nullable=False)
@@ -83,9 +82,9 @@ class Attendance(db.Model):
     date = db.Column(db.Date, nullable=False)
     status = db.Column(db.String(20), nullable=False)  # 'present', 'absent', 'uncertain'
     
-    # ✅ NEW: Recognition metadata for Phase 1
-    confidence = db.Column(db.Float, nullable=True)  # Match confidence score
-    distance = db.Column(db.Float, nullable=True)  # Face distance metric
+    # Recognition metadata
+    confidence = db.Column(db.Float, nullable=True)
+    distance = db.Column(db.Float, nullable=True)
     
     marked_at = db.Column(db.DateTime, default=datetime.utcnow)
     

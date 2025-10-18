@@ -1,4 +1,5 @@
-# backend/routes/attendance.py - PHASE 2 + PHASE 4: MTCNN + RATE LIMITING
+# backend/routes/attendance.py - CLEAN VERSION (NO AUDIT LOG)
+# PHASE 2 + 4: MTCNN + RATE LIMITING ONLY
 from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from models import Attendance, Student, Classroom, User
@@ -10,11 +11,9 @@ import json
 import numpy as np
 import face_recognition
 import os
-from utils.rate_limiter import rate_limiter  # ✅ PHASE 4: Rate limiting
-
+from utils.rate_limiter import rate_limiter
 
 attendance_bp = Blueprint('attendance', __name__, url_prefix='/api/attendance')
-
 
 def teacher_required(fn):
     """Custom decorator to ensure user is a teacher"""
@@ -25,7 +24,6 @@ def teacher_required(fn):
     def wrapper(*args, **kwargs):
         claims = get_jwt()
         user_id = get_jwt_identity()
-        
         user = User.query.get(user_id)
         
         if not user or user.role != 'teacher':
@@ -36,40 +34,26 @@ def teacher_required(fn):
     return wrapper
 
 
-# ==================== ✅ PHASE 2 + 4: MTCNN + RATE LIMITING ====================
+# ==================== PHASE 2 + 4: MTCNN + RATE LIMITING ====================
 @attendance_bp.route('/mark_face', methods=['POST'])
 @teacher_required
 def mark_attendance_face():
     """
     Phase 2 + 4: Mark attendance using MTCNN + 4-tier + Rate Limiting
-    
     Detection: MTCNN (96.4% accuracy, 35° angle tolerance)
     Rate Limit: 80 requests/hour per teacher
-    
-    Tier 1 (Green):  <0.45 distance → Auto-approve (>55% confidence)
-    Tier 2 (Yellow): 0.45-0.60 → High priority review (40-55% confidence)
-    Tier 3 (Orange): 0.60-0.70 → Optional review - edge cases (30-40% confidence)
-    Tier 4 (Red):    >0.70 → Auto-reject - unknown person (<30% confidence)
     """
     try:
         current_user_id = get_jwt_identity()
         
-        # ✅ PHASE 4: Rate Limiting (80 requests/hour)
+        # Rate Limiting
         allowed, message, remaining = rate_limiter.check_limit(current_user_id, limit=80, window_minutes=60)
         
         if not allowed:
-            print(f"⚠️ Rate limit exceeded for user {current_user_id}")
             return jsonify({
                 'error': message,
-                'rate_limit': {
-                    'exceeded': True,
-                    'limit': 80,
-                    'window': '1 hour',
-                    'remaining': 0
-                }
-            }), 429  # HTTP 429: Too Many Requests
-        
-        print(f"✅ Rate limit check passed for user {current_user_id}: {message}")
+                'rate_limit': {'exceeded': True, 'limit': 80, 'window': '1 hour', 'remaining': 0}
+            }), 429
         
         classroom_id = request.form.get('classroom_id')
         date_str = request.form.get('date')
@@ -77,7 +61,6 @@ def mark_attendance_face():
         if not classroom_id or not date_str:
             return jsonify({'error': 'Missing classroom_id or date'}), 400
         
-        # Parse date
         try:
             attendance_date = datetime.strptime(date_str, '%Y-%m-%d').date()
         except:
@@ -101,44 +84,39 @@ def mark_attendance_face():
         temp_path = os.path.join(upload_folder, temp_filename)
         image_file.save(temp_path)
         
-        # ✅ PHASE 2: MTCNN Detection
+        # MTCNN Detection
         from utils.face_utils import detect_faces_mtcnn
         
         image = face_recognition.load_image_file(temp_path)
-        
-        print(f"🔍 Using MTCNN detection (96.4% accuracy, 35° angle tolerance)")
         face_locations = detect_faces_mtcnn(image)
         
         # Fallback to HOG if MTCNN fails
         if not face_locations:
-            print("⚠️ MTCNN detection failed, using HOG fallback...")
             face_locations = face_recognition.face_locations(image, model='hog')
         
         face_encodings = face_recognition.face_encodings(image, face_locations)
-        
-        print(f"🔍 Detected {len(face_locations)} faces in uploaded image")
         
         if len(face_encodings) == 0:
             os.remove(temp_path)
             return jsonify({'error': 'No faces detected in image'}), 400
         
-        # Get classroom students with encodings
+        # Get classroom students
         students = Student.query.filter_by(classroom_id=classroom_id).all()
         
         if not students:
             os.remove(temp_path)
             return jsonify({'error': 'No students enrolled in classroom'}), 400
         
-        # ✅ Build known encodings database
+        # Build known encodings database
         known_encodings = []
         known_student_ids = []
         student_map = {}
 
         for student in students:
             student_map[student.id] = {
-                'name': student.name, 
+                'name': student.name,
                 'roll_no': student.roll_no,
-                'photo_path': student.photo_path  # ✅ PHASE 2: Add photo_path for thumbnails
+                'photo_path': student.photo_path
             }
             if student.encodings:
                 try:
@@ -147,40 +125,35 @@ def mark_attendance_face():
                         known_encodings.append(enc)
                         known_student_ids.append(student.id)
                 except:
-                    print(f"⚠️ Failed to load encodings for {student.name}")
+                    pass
         
         if not known_encodings:
             os.remove(temp_path)
-            return jsonify({'error': 'No student encodings found. Please enroll students with photos.'}), 400
+            return jsonify({'error': 'No student encodings found'}), 400
         
-        print(f"📊 Loaded {len(known_encodings)} encodings for {len(students)} students")
-        
-        # ✅ PHASE 2: 4-TIER CONFIDENCE BANDS
-        TOLERANCE_HIGH_CONFIDENCE = 0.45   # Tier 1: <0.45 = Auto-approve (Green)
-        TOLERANCE_STANDARD_REVIEW = 0.60   # Tier 2: 0.45-0.60 = High priority review (Yellow)
-        TOLERANCE_EXTENDED_REVIEW = 0.70   # Tier 3: 0.60-0.70 = Optional review (Orange)
-        # Tier 4: >0.70 = Auto-reject (Red)
+        # 4-TIER CONFIDENCE BANDS
+        TOLERANCE_HIGH_CONFIDENCE = 0.45
+        TOLERANCE_STANDARD_REVIEW = 0.60
+        TOLERANCE_EXTENDED_REVIEW = 0.70
         
         marked_present = []
-        uncertain_matches_high = []   # Tier 2: High priority (0.45-0.60)
-        uncertain_matches_low = []    # Tier 3: Optional (0.60-0.70)
+        uncertain_matches_high = []
+        uncertain_matches_low = []
         unknown_faces = []
         matched_student_ids = set()
         
         for face_encoding in face_encodings:
-            # Calculate distances to all known encodings
             distances = face_recognition.face_distance(known_encodings, face_encoding)
             best_match_index = np.argmin(distances)
             min_distance = distances[best_match_index]
             student_id = known_student_ids[best_match_index]
             
-            # Avoid duplicate marks
             if student_id in matched_student_ids:
                 continue
             
             confidence = (1 - min_distance) * 100
             
-            # ✅ TIER 1: HIGH CONFIDENCE (Green - Auto-approve)
+            # TIER 1: HIGH CONFIDENCE
             if min_distance < TOLERANCE_HIGH_CONFIDENCE:
                 matched_student_ids.add(student_id)
                 marked_present.append({
@@ -192,9 +165,8 @@ def mark_attendance_face():
                     'status': 'high_confidence',
                     'tier': 1
                 })
-                print(f"✅ Tier 1 (Green/Auto): {student_map[student_id]['name']}, {confidence:.1f}%")
             
-            # ✅ TIER 2: STANDARD REVIEW (Yellow - High priority)
+            # TIER 2: STANDARD REVIEW
             elif min_distance < TOLERANCE_STANDARD_REVIEW:
                 uncertain_matches_high.append({
                     'student_id': student_id,
@@ -204,11 +176,10 @@ def mark_attendance_face():
                     'distance': round(min_distance, 4),
                     'status': 'uncertain_high',
                     'tier': 2,
-                    'photo_path': student_map[student_id].get('photo_path')  # ✅ PHASE 2: Thumbnail support
+                    'photo_path': student_map[student_id].get('photo_path')
                 })
-                print(f"⚠️ Tier 2 (Yellow/Review): {student_map[student_id]['name']}, {confidence:.1f}%")
             
-            # ✅ TIER 3: EXTENDED REVIEW (Orange - Optional, edge cases)
+            # TIER 3: EXTENDED REVIEW
             elif min_distance < TOLERANCE_EXTENDED_REVIEW:
                 uncertain_matches_low.append({
                     'student_id': student_id,
@@ -218,11 +189,10 @@ def mark_attendance_face():
                     'distance': round(min_distance, 4),
                     'status': 'uncertain_low',
                     'tier': 3,
-                    'photo_path': student_map[student_id].get('photo_path')  # ✅ PHASE 2: Thumbnail support
+                    'photo_path': student_map[student_id].get('photo_path')
                 })
-                print(f"🟠 Tier 3 (Orange/Optional): {student_map[student_id]['name']}, {confidence:.1f}%")
             
-            # ✅ TIER 4: UNKNOWN (Red - Auto-reject)
+            # TIER 4: UNKNOWN
             else:
                 unknown_faces.append({
                     'distance': round(min_distance, 4),
@@ -230,9 +200,8 @@ def mark_attendance_face():
                     'status': 'unknown',
                     'tier': 4
                 })
-                print(f"❌ Tier 4 (Red/Reject): Unknown face, {confidence:.1f}%, distance {min_distance:.4f}")
         
-        # ✅ Save high-confidence attendance records
+        # Save high-confidence attendance records
         for match in marked_present:
             existing = Attendance.query.filter_by(
                 student_id=match['student_id'],
@@ -255,6 +224,7 @@ def mark_attendance_face():
                 if match['confidence'] > (existing.confidence or 0):
                     existing.confidence = match['confidence']
                     existing.distance = match['distance']
+                    existing.status = 'present'
         
         # Mark remaining students as absent
         all_student_ids = [s.id for s in students]
@@ -280,12 +250,10 @@ def mark_attendance_face():
         db.session.commit()
         os.remove(temp_path)
         
-        # Combine uncertain matches for backward compatibility
         all_uncertain = uncertain_matches_high + uncertain_matches_low
         
-        # ✅ Return detailed results with 4-tier breakdown + rate limit info
         return jsonify({
-            'message': 'Attendance marked successfully with MTCNN + 4-tier recognition',
+            'message': 'Attendance marked successfully',
             'summary': {
                 'total_students': len(students),
                 'present': len(marked_present),
@@ -295,13 +263,13 @@ def mark_attendance_face():
                 'unknown_faces': len(unknown_faces)
             },
             'high_confidence_matches': marked_present,
-            'uncertain_matches': all_uncertain,  # All uncertain combined
-            'uncertain_matches_high': uncertain_matches_high,  # Tier 2 - High priority
-            'uncertain_matches_low': uncertain_matches_low,    # Tier 3 - Optional
+            'uncertain_matches': all_uncertain,
+            'uncertain_matches_high': uncertain_matches_high,
+            'uncertain_matches_low': uncertain_matches_low,
             'unknown_faces': unknown_faces,
             'detection_method': 'MTCNN' if face_locations else 'HOG',
             'date': date_str,
-            'rate_limit': {  # ✅ PHASE 4: Rate limit info
+            'rate_limit': {
                 'remaining': remaining,
                 'limit': 80,
                 'window': '1 hour'
@@ -309,17 +277,16 @@ def mark_attendance_face():
         }), 200
         
     except Exception as e:
-        print(f"❌ Error marking attendance: {str(e)}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': f'Failed to mark attendance: {str(e)}'}), 500
 
 
-# ==================== MANUAL ATTENDANCE (LEGACY) ====================
+# ==================== MANUAL ATTENDANCE ====================
 @attendance_bp.route('/mark', methods=['POST'])
 @teacher_required
 def mark_attendance():
-    """Manual attendance marking (original method - keep for backward compatibility)"""
+    """Manual attendance marking"""
     user_id = get_jwt_identity()
     data = request.get_json()
     
@@ -357,8 +324,9 @@ def mark_attendance():
         ).first()
         
         if existing:
-            existing.status = status
-            updated_count += 1
+            if existing.status != status:
+                existing.status = status
+                updated_count += 1
         else:
             new_attendance = Attendance(
                 student_id=student_id,
@@ -539,7 +507,7 @@ def delete_attendance(attendance_id):
     return jsonify({"message": "Attendance record deleted"}), 200
 
 
-# ==================== ✅ PHASE 4: RATE LIMIT STATUS ENDPOINT ====================
+# ==================== RATE LIMIT STATUS ====================
 @attendance_bp.route('/rate_limit/status', methods=['GET'])
 @teacher_required
 def get_rate_limit_status():

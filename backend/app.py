@@ -27,7 +27,7 @@ app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///app.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_SECRET_KEY'] = 'dev-secret-key-change-in-production'
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=1)
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=3)
 
 
 # ==================== INITIALIZE EXTENSIONS ====================
@@ -367,7 +367,7 @@ from routes.students import student_bp
 from routes.attendance import attendance_bp
 from routes.analytics import analytics_bp
 from routes.student_portal import student_portal_bp
-from routes.liveness import liveness_bp
+
 
 
 app.register_blueprint(classroom_bp)
@@ -375,7 +375,7 @@ app.register_blueprint(student_bp)
 app.register_blueprint(attendance_bp)
 app.register_blueprint(analytics_bp)
 app.register_blueprint(student_portal_bp)
-app.register_blueprint(liveness_bp)
+
 
 
 # ==================== JWT HANDLERS ====================
