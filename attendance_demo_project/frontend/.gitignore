@@ -1,73 +1,62 @@
-# ==================== FRONTEND (Vite/React) ====================
+# ================= FRONTEND (Vite / React) =================
+node_modules/
+dist/
+dist-ssr/
+*.local
+
 # Logs
-logs
 *.log
 npm-debug.log*
 yarn-debug.log*
-yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# Dependencies
-node_modules
-
-# Build outputs
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
-.vscode/*
+# Editor / OS
+.vscode/
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
 *.suo
-*.ntvs*
-*.njsproj
-*.sln
 *.sw?
+*.tmp
+*.bak
+*~
 
-
-# ==================== BACKEND (Python/Flask) ====================
-# Python
+# ================= BACKEND (Flask / Python) =================
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-*.pyc
 *.pyo
 *.pyd
+*.so
+.Python
 
-# Virtual Environment
+# Virtual environments
 venv/
+.venv/
 env/
 ENV/
-.venv/
 
-# Flask
+# Flask-specific
 instance/
 .webassets-cache
 
-# Database files
+# Databases
 *.db
-*.sqlite
-*.sqlite3
+*.sqlite*
+*.sql
 
 # Environment variables
-.env
-.env.local
-.env.production
+.env*
+!.env.example
 
-# Build artifacts
+# Build / distribution artifacts
 build/
 develop-eggs/
 dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+lib*/
 parts/
 sdist/
 var/
@@ -82,31 +71,20 @@ wheels/
 htmlcov/
 .tox/
 
-# Database migrations (uncomment if using Alembic/Flask-Migrate without version control)
-# migrations/
-
-
-# ==================== PROJECT SPECIFIC ====================
-# Uploaded files (student photos, etc.)
+# ================= PROJECT SPECIFIC =================
 uploads/
-images/*.jpg
-images/*.jpeg
-images/*.png
-images/*.gif
-
-# Keep folder structure but ignore images
-!images/.gitkeep
+images/
 !uploads/.gitkeep
+!images/.gitkeep
 
-# Temporary files
-*.tmp
-*.bak
-*.swp
-*~
+# Misc
+*.zip
+*.rar
+*.7z
+*.tar
+*.gz
 
-venv/
-__pycache__/
-*.pyc
-.env
-.DS_Store
-
+# Garbage or accident files
+-files
+committed
+tatus --ignored
