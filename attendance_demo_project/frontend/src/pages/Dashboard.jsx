@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react'
+// src/pages/Analytics.jsx - FIXED & BEAUTIFUL
+import React, { useState, useEffect, useCallback } from 'react'
 import { api } from '../services/api'
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts'
 
@@ -15,48 +16,52 @@ export default function Analytics() {
   const [drillDownData, setDrillDownData] = useState(null)
   const [loadingDrillDown, setLoadingDrillDown] = useState(false)
 
+  // Load initial data only once
   useEffect(() => {
     loadData()
   }, [])
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true)
       const { data: overviewData } = await api.get('/analytics/overview')
       setOverview(overviewData)
+      
       const { data: classroomsData } = await api.get('/classrooms')
       setClassrooms(classroomsData)
+      
       if (classroomsData.length > 0) {
-        setSelectedClassroom(classroomsData[0].id)
-        loadClassroomData(classroomsData[0].id)
-        loadHeatmap(classroomsData[0].id, heatmapDays)
+        const firstClassId = classroomsData[0].id
+        setSelectedClassroom(firstClassId)
+        await loadClassroomData(firstClassId)
+        await loadHeatmap(firstClassId, 30)
       }
     } catch (e) {
       console.error('Failed to load analytics:', e)
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  const loadClassroomData = async (classroomId) => {
+  const loadClassroomData = useCallback(async (classroomId) => {
     try {
       const { data: studentsData } = await api.get(`/analytics/students?classroom_id=${classroomId}`)
       setStudents(studentsData)
     } catch (e) {
       console.error('Failed to load classroom data:', e)
     }
-  }
+  }, [])
 
-  const loadHeatmap = async (classroomId, days) => {
+  const loadHeatmap = useCallback(async (classroomId, days) => {
     try {
       const { data } = await api.get(`/analytics/heatmap?classroom_id=${classroomId}&days=${days}`)
       setHeatmapData(data)
     } catch (e) {
       console.error('Failed to load heatmap:', e)
     }
-  }
+  }, [])
 
-  const loadDrillDownData = async (date, classroomId) => {
+  const loadDrillDownData = useCallback(async (date, classroomId) => {
     try {
       setLoadingDrillDown(true)
       const { data } = await api.get(`/attendance/${classroomId}?date=${date}`)
@@ -68,19 +73,20 @@ export default function Analytics() {
     } finally {
       setLoadingDrillDown(false)
     }
-  }
+  }, [])
 
   const handleClassroomChange = (e) => {
     const classroomId = e.target.value
     setSelectedClassroom(classroomId)
+    setSelectedDay(null)
     loadClassroomData(classroomId)
     loadHeatmap(classroomId, heatmapDays)
-    setSelectedDay(null)
   }
 
   const handleHeatmapDaysChange = (e) => {
     const days = parseInt(e.target.value)
     setHeatmapDays(days)
+    setSelectedDay(null)
     if (selectedClassroom) loadHeatmap(selectedClassroom, days)
   }
 
@@ -137,7 +143,7 @@ export default function Analytics() {
       </head>
       <body>
         <h1>📊 Analytics Report</h1>
-        <p><strong>Generated:</strong> ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</p>
+        <p><strong>Generated:</strong> ${new Date().toLocaleString('en-IN')}</p>
         <div class="overview">
           <div class="card"><strong>Total Students</strong><div class="value">${overview.total_students}</div></div>
           <div class="card"><strong>Total Classrooms</strong><div class="value">${overview.total_classrooms}</div></div>
@@ -186,47 +192,112 @@ export default function Analytics() {
   )
 
   return (
-    <div className="min-vh-100 bg-light py-4">
+    <div style={{ background: 'linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%)', minHeight: '100vh', paddingTop: '24px', paddingBottom: '40px' }}>
       <div className="container-fluid" style={{ maxWidth: '1400px' }}>
         
         {/* Header */}
-        <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '32px',
+          flexWrap: 'wrap',
+          gap: '16px'
+        }}>
           <div>
-            <h1 className="fw-bold mb-2">📊 Analytics Dashboard</h1>
-            <p className="text-muted mb-0">Comprehensive attendance insights</p>
+            <h1 style={{ fontWeight: 900, marginBottom: '8px', color: '#1f2937', fontSize: '32px' }}>
+              📊 Analytics Dashboard
+            </h1>
+            <p style={{ color: '#6b7280', marginBottom: 0 }}>Comprehensive attendance insights</p>
           </div>
-          <div className="d-flex gap-2">
-            <button onClick={exportCSV} className="btn btn-success shadow-sm btn-hover">
-              📊 Export CSV
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <button 
+              onClick={exportCSV} 
+              style={{
+                padding: '10px 20px',
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
+                transition: 'all 0.3s ease'
+              }}
+              onMouseEnter={(e) => { e.target.transform = 'translateY(-2px)'; e.target.boxShadow = '0 6px 16px rgba(16, 185, 129, 0.4)' }}
+            >
+              📥 CSV
             </button>
-            <button onClick={exportPDF} className="btn btn-danger shadow-sm btn-hover">
-              📄 Export PDF
+            <button 
+              onClick={exportPDF}
+              style={{
+                padding: '10px 20px',
+                background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)',
+                transition: 'all 0.3s ease'
+              }}
+            >
+              📄 PDF
             </button>
           </div>
         </div>
 
-        {/* Overview Cards */}
-        <div className="row g-4 mb-4">
+        {/* Overview Cards - Cute Design */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+          gap: '20px',
+          marginBottom: '32px'
+        }}>
           {[
-            { title: 'Total Students', value: overview.total_students, subtitle: `${overview.total_classrooms} classrooms`, icon: '👨‍🎓', bg: 'primary' },
-            { title: "Today's Present", value: overview.today.present, subtitle: `Out of ${overview.today.total}`, icon: '✅', bg: 'success' },
-            { title: "Today's Absent", value: overview.today.absent, subtitle: `${overview.today.total > 0 ? Math.round(overview.today.absent / overview.today.total * 100) : 0}%`, icon: '❌', bg: 'danger' },
-            { title: 'Overall Rate (30d)', value: `${overview.overall_rate}%`, subtitle: `${overview.last_30_days.total_records} records`, icon: '📈', bg: 'warning' }
+            { title: 'Total Students', value: overview.total_students, icon: '👨‍🎓', bg: '#667eea', light: '#f0f4ff' },
+            { title: "Today's Present", value: overview.today.present, icon: '✅', bg: '#10b981', light: '#f0fdf4' },
+            { title: "Today's Absent", value: overview.today.absent, icon: '❌', bg: '#ef4444', light: '#fef2f2' },
+            { title: 'Overall Rate', value: `${overview.overall_rate}%`, icon: '📈', bg: '#f59e0b', light: '#fffbeb' }
           ].map((card, i) => (
-            <div key={i} className="col-md-6 col-lg-3">
-              <div className={`card border-0 shadow-sm h-100 bg-${card.bg} bg-opacity-10 border-start border-${card.bg} border-4`}>
-                <div className="card-body">
-                  <div className="d-flex justify-content-between align-items-start">
-                    <div>
-                      <p className={`text-${card.bg} text-uppercase fw-bold small mb-2`}>{card.title}</p>
-                      <h2 className={`text-${card.bg} fw-bold mb-1`}>{card.value}</h2>
-                      <small className={`text-${card.bg} opacity-75`}>{card.subtitle}</small>
-                    </div>
-                    <div className={`bg-${card.bg} rounded-circle d-flex align-items-center justify-content-center`} 
-                         style={{ width: 50, height: 50, fontSize: 24 }}>
-                      {card.icon}
-                    </div>
-                  </div>
+            <div key={i} style={{
+              background: 'white',
+              borderRadius: '16px',
+              padding: '24px',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+              border: `2px solid ${card.light}`,
+              transition: 'all 0.3s ease',
+              cursor: 'pointer'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-4px)'
+              e.currentTarget.style.boxShadow = '0 8px 20px rgba(0,0,0,0.1)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)'
+              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)'
+            }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <p style={{ color: card.bg, fontWeight: 600, fontSize: '12px', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    {card.title}
+                  </p>
+                  <h2 style={{ color: card.bg, fontWeight: 900, marginBottom: '8px', fontSize: '32px' }}>
+                    {card.value}
+                  </h2>
+                </div>
+                <div style={{
+                  width: '60px',
+                  height: '60px',
+                  background: card.light,
+                  borderRadius: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '32px'
+                }}>
+                  {card.icon}
                 </div>
               </div>
             </div>
@@ -234,380 +305,415 @@ export default function Analytics() {
         </div>
 
         {/* Pie Charts */}
-        <div className="row g-4 mb-4">
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+          gap: '24px',
+          marginBottom: '32px'
+        }}>
           {todayPieData.length > 0 && (
-            <div className="col-lg-6">
-              <div className="card border-0 shadow-sm">
-                <div className="card-body">
-                  <h5 className="card-title fw-bold mb-3">Today's Distribution</h5>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <PieChart>
-                      <Pie data={todayPieData} cx="50%" cy="50%" labelLine={false} 
-                           label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`} 
-                           outerRadius={100} dataKey="value">
-                        {todayPieData.map((entry, index) => <Cell key={index} fill={entry.color} />)}
-                      </Pie>
-                      <Tooltip />
-                      <Legend />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
+            <div style={{
+              background: 'white',
+              borderRadius: '16px',
+              padding: '24px',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
+            }}>
+              <h5 style={{ fontWeight: 700, marginBottom: '20px', color: '#1f2937' }}>Today's Distribution</h5>
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie data={todayPieData} cx="50%" cy="50%" labelLine={false} 
+                       label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`} 
+                       outerRadius={100} dataKey="value">
+                    {todayPieData.map((entry, index) => <Cell key={index} fill={entry.color} />)}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
             </div>
           )}
           {attendanceRanges.length > 0 && (
-            <div className="col-lg-6">
-              <div className="card border-0 shadow-sm">
-                <div className="card-body">
-                  <h5 className="card-title fw-bold mb-3">Performance Ranges</h5>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <PieChart>
-                      <Pie data={attendanceRanges} cx="50%" cy="50%" labelLine={false} 
-                           label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`} 
-                           outerRadius={100} dataKey="value">
-                        {attendanceRanges.map((entry, index) => <Cell key={index} fill={entry.color} />)}
-                      </Pie>
-                      <Tooltip />
-                      <Legend />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
+            <div style={{
+              background: 'white',
+              borderRadius: '16px',
+              padding: '24px',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
+            }}>
+              <h5 style={{ fontWeight: 700, marginBottom: '20px', color: '#1f2937' }}>Performance Ranges</h5>
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie data={attendanceRanges} cx="50%" cy="50%" labelLine={false} 
+                       label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`} 
+                       outerRadius={100} dataKey="value">
+                    {attendanceRanges.map((entry, index) => <Cell key={index} fill={entry.color} />)}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
             </div>
           )}
         </div>
 
         {/* Filters */}
-        <div className="card border-0 shadow-sm mb-4">
-          <div className="card-body">
-            <h5 className="card-title fw-bold mb-3">🔍 Filters</h5>
-            <div className="row g-3">
-              <div className="col-md-6">
-                <label className="form-label fw-semibold">Select Classroom</label>
-                <select value={selectedClassroom} onChange={handleClassroomChange} className="form-select form-select-lg">
-                  {classrooms.map(c => <option key={c.id} value={c.id}>{c.name} - {c.subject || 'No subject'}</option>)}
-                </select>
-              </div>
-              <div className="col-md-6">
-                <label className="form-label fw-semibold">Heatmap Period</label>
-                <select value={heatmapDays} onChange={handleHeatmapDaysChange} className="form-select form-select-lg">
-                  <option value={30}>Last 30 Days</option>
-                  <option value={60}>Last 60 Days</option>
-                  <option value={90}>Last 90 Days</option>
-                </select>
-              </div>
+        <div style={{
+          background: 'white',
+          borderRadius: '16px',
+          padding: '24px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+          marginBottom: '32px'
+        }}>
+          <h5 style={{ fontWeight: 700, marginBottom: '20px', color: '#1f2937' }}>🔍 Filters</h5>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
+            <div>
+              <label style={{ fontWeight: 600, marginBottom: '8px', display: 'block', color: '#374151' }}>Select Classroom</label>
+              <select 
+                value={selectedClassroom} 
+                onChange={handleClassroomChange} 
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  border: '2px solid #e5e7eb',
+                  borderRadius: '10px',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  transition: 'all 0.3s ease'
+                }}
+              >
+                {classrooms.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontWeight: 600, marginBottom: '8px', display: 'block', color: '#374151' }}>Heatmap Period</label>
+              <select 
+                value={heatmapDays} 
+                onChange={handleHeatmapDaysChange} 
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  border: '2px solid #e5e7eb',
+                  borderRadius: '10px',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  transition: 'all 0.3s ease'
+                }}
+              >
+                <option value={30}>Last 30 Days</option>
+                <option value={60}>Last 60 Days</option>
+                <option value={90}>Last 90 Days</option>
+              </select>
             </div>
           </div>
         </div>
 
         {/* Heatmap */}
         {heatmapData && (
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-body">
-              <h5 className="card-title fw-bold mb-1">📅 Attendance Heatmap Calendar</h5>
-              <p className="text-muted small mb-4">{heatmapData.classroom_name} • {heatmapData.total_students} Students • Last {heatmapDays} Days</p>
-              
-              <div className="overflow-auto bg-light rounded p-4 mb-3 border">
-                <div style={{ minWidth: 600 }}>
-                  <div className="d-flex mb-3" style={{ marginLeft: 60 }}>
-                    {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => (
-                      <div key={i} className="text-muted fw-bold small text-center" style={{ width: 32, marginRight: 6 }}>{day.slice(0, 3)}</div>
-                    ))}
-                  </div>
-                  {getWeekData(heatmapData.heatmap).map((week, weekIdx) => (
-                    <div key={weekIdx} className="d-flex align-items-center mb-2">
-                      <small className="text-muted fw-bold text-end" style={{ width: 50, marginRight: 10 }}>Week {weekIdx + 1}</small>
-                      {week.map((day, dayIdx) => (
-                        <div 
-                          key={dayIdx} 
-                          onClick={() => {
-                            if (day.total_marked > 0) {
-                              setSelectedDay(day)
-                              loadDrillDownData(day.date, selectedClassroom)
-                            }
-                          }}
-                          className={`heatmap-cell ${day.total_marked > 0 ? 'heatmap-clickable' : 'heatmap-disabled'} ${selectedDay?.date === day.date ? 'heatmap-selected' : ''}`}
-                          style={{
-                            width: 32,
-                            height: 32,
-                            marginRight: 6,
-                            background: getIntensityColor(day.intensity),
-                            borderRadius: 6,
-                            border: selectedDay?.date === day.date ? '3px solid #3b82f6' : '2px solid #d1d5db',
-                            cursor: day.total_marked > 0 ? 'pointer' : 'not-allowed',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            position: 'relative'
-                          }}
-                          title={day.total_marked > 0 ? `${day.date}: ${day.percentage}% attendance` : `${day.date}: No data`}
-                        >
-                          {day.total_marked > 0 && selectedDay?.date === day.date && (
-                            <span style={{ fontSize: 16 }}>✓</span>
-                          )}
-                        </div>
-                      ))}
+          <div style={{
+            background: 'white',
+            borderRadius: '16px',
+            padding: '24px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+            marginBottom: '32px'
+          }}>
+            <h5 style={{ fontWeight: 700, marginBottom: '4px', color: '#1f2937' }}>📅 Attendance Heatmap</h5>
+            <p style={{ color: '#6b7280', fontSize: '14px', marginBottom: '20px' }}>{heatmapData.classroom_name}</p>
+            
+            <div style={{
+              background: '#f9fafb',
+              borderRadius: '12px',
+              padding: '20px',
+              marginBottom: '20px',
+              overflowX: 'auto'
+            }}>
+              <div style={{ minWidth: 600 }}>
+                <div style={{ display: 'flex', marginBottom: '16px', marginLeft: '60px' }}>
+                  {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => (
+                    <div key={i} style={{
+                      width: 32,
+                      marginRight: 6,
+                      textAlign: 'center',
+                      fontWeight: 600,
+                      fontSize: '12px',
+                      color: '#6b7280'
+                    }}>
+                      {day.slice(0, 3)}
                     </div>
                   ))}
                 </div>
-              </div>
-
-              {selectedDay && (
-                <div className="alert alert-primary border-2 border-primary mb-4" role="alert">
-                  <div className="d-flex align-items-center justify-content-between">
-                    <div>
-                      <h6 className="alert-heading fw-bold mb-2">
-                        📅 {selectedDay.date} ({selectedDay.day_of_week})
-                      </h6>
-                      <div className="d-flex gap-4 align-items-center">
-                        <span>
-                          Present: <strong className="text-success">{selectedDay.present}</strong>
-                        </span>
-                        <span>
-                          Absent: <strong className="text-danger">{selectedDay.total_students - selectedDay.present}</strong>
-                        </span>
-                        <span className="badge bg-primary fs-6 px-3 py-2">{selectedDay.percentage}% Attendance</span>
+                {getWeekData(heatmapData.heatmap).map((week, weekIdx) => (
+                  <div key={weekIdx} style={{ display: 'flex', alignItems: 'center', marginBottom: '12px' }}>
+                    <small style={{
+                      width: 50,
+                      marginRight: 10,
+                      textAlign: 'right',
+                      fontWeight: 600,
+                      color: '#6b7280'
+                    }}>
+                      W{weekIdx + 1}
+                    </small>
+                    {week.map((day, dayIdx) => (
+                      <div 
+                        key={dayIdx} 
+                        onClick={() => {
+                          if (day.total_marked > 0) {
+                            setSelectedDay(day)
+                            loadDrillDownData(day.date, selectedClassroom)
+                          }
+                        }}
+                        style={{
+                          width: 32,
+                          height: 32,
+                          marginRight: 6,
+                          background: getIntensityColor(day.intensity),
+                          borderRadius: 8,
+                          border: selectedDay?.date === day.date ? '3px solid #667eea' : '2px solid #d1d5db',
+                          cursor: day.total_marked > 0 ? 'pointer' : 'not-allowed',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 700,
+                          transition: 'all 0.2s ease',
+                          fontSize: '14px'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (day.total_marked > 0) {
+                            e.currentTarget.style.transform = 'scale(1.15)'
+                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.3)'
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.transform = 'scale(1)'
+                          e.currentTarget.style.boxShadow = 'none'
+                        }}
+                        title={day.total_marked > 0 ? `${day.date}: ${day.percentage}%` : `${day.date}: No data`}
+                      >
+                        {selectedDay?.date === day.date && '✓'}
                       </div>
-                    </div>
-                    <button 
-                      onClick={() => setSelectedDay(null)} 
-                      className="btn btn-sm btn-outline-primary"
-                    >
-                      Clear Selection
-                    </button>
+                    ))}
                   </div>
-                </div>
-              )}
-
-              <div className="d-flex align-items-center justify-content-center gap-3 mb-4 py-3 bg-white rounded border">
-                <small className="text-muted fw-bold">Less Attendance</small>
-                {[0, 1, 2, 3, 4].map(level => (
-                  <div key={level} className="rounded-2 border-2 border shadow-sm" 
-                       style={{ width: 32, height: 32, background: getIntensityColor(level) }} />
                 ))}
-                <small className="text-muted fw-bold">More Attendance</small>
-              </div>
-
-              {heatmapData.stats && (
-                <div className="row g-3 mt-2">
-                  <div className="col-md-3">
-                    <div className="card bg-light border-0">
-                      <div className="card-body text-center">
-                        <small className="text-muted text-uppercase fw-bold d-block mb-2">Avg Attendance</small>
-                        <h3 className="text-primary fw-bold mb-0">{heatmapData.stats.avg_attendance}%</h3>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="col-md-3">
-                    <div className="card bg-light border-0">
-                      <div className="card-body text-center">
-                        <small className="text-muted text-uppercase fw-bold d-block mb-2">Days Marked</small>
-                        <h3 className="text-info fw-bold mb-0">{heatmapData.stats.marked_days}/{heatmapData.stats.total_days}</h3>
-                      </div>
-                    </div>
-                  </div>
-                  {heatmapData.stats.best_day && (
-                    <div className="col-md-3">
-                      <div className="card bg-success bg-opacity-10 border-success border-2">
-                        <div className="card-body text-center">
-                          <small className="text-success text-uppercase fw-bold d-block mb-2">Best Day</small>
-                          <p className="text-success fw-bold mb-1 small">{heatmapData.stats.best_day.date}</p>
-                          <h4 className="text-success fw-bold mb-0">{heatmapData.stats.best_day.percentage}%</h4>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {heatmapData.stats.worst_day && (
-                    <div className="col-md-3">
-                      <div className="card bg-danger bg-opacity-10 border-danger border-2">
-                        <div className="card-body text-center">
-                          <small className="text-danger text-uppercase fw-bold d-block mb-2">Worst Day</small>
-                          <p className="text-danger fw-bold mb-1 small">{heatmapData.stats.worst_day.date}</p>
-                          <h4 className="text-danger fw-bold mb-0">{heatmapData.stats.worst_day.percentage}%</h4>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Drill-down Modal */}
-        {drillDownDate && drillDownData && (
-          <div className="modal show d-block" style={{ background: 'rgba(0,0,0,0.75)' }}>
-            <div className="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
-              <div className="modal-content shadow-lg">
-                <div className="modal-header bg-light">
-                  <h5 className="modal-title fw-bold">📅 Attendance Details - {drillDownDate}</h5>
-                  <button type="button" className="btn-close" onClick={() => { setDrillDownDate(null); setDrillDownData(null) }}></button>
-                </div>
-                <div className="modal-body">
-                  {loadingDrillDown ? (
-                    <div className="text-center py-5">
-                      <div className="spinner-border text-primary" role="status"></div>
-                      <p className="mt-3 text-muted">Loading data...</p>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="row g-3 mb-4">
-                        <div className="col-6">
-                          <div className="card bg-success bg-opacity-10 border-success border-2">
-                            <div className="card-body text-center">
-                              <small className="text-success text-uppercase fw-bold d-block mb-2">✅ Present</small>
-                              <h2 className="text-success fw-bold mb-0">{drillDownData.filter(s => s.status === 'present').length}</h2>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="col-6">
-                          <div className="card bg-danger bg-opacity-10 border-danger border-2">
-                            <div className="card-body text-center">
-                              <small className="text-danger text-uppercase fw-bold d-block mb-2">❌ Absent</small>
-                              <h2 className="text-danger fw-bold mb-0">{drillDownData.filter(s => s.status === 'absent').length}</h2>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="table-responsive border rounded" style={{ maxHeight: 400 }}>
-                        <table className="table table-striped table-hover mb-0">
-                          <thead className="table-light sticky-top">
-                            <tr>
-                              <th className="fw-bold">Roll No</th>
-                              <th className="fw-bold">Name</th>
-                              <th className="text-center fw-bold">Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {drillDownData.map(student => (
-                              <tr key={student.student_id}>
-                                <td className="fw-semibold">{student.roll_no}</td>
-                                <td>{student.student_name}</td>
-                                <td className="text-center">
-                                  <span className={`badge ${student.status === 'present' ? 'bg-success' : 'bg-danger'} px-3 py-2`}>
-                                    {student.status === 'present' ? '✅ Present' : '❌ Absent'}
-                                  </span>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </>
-                  )}
-                </div>
               </div>
             </div>
+
+            {selectedDay && (
+              <div style={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                borderRadius: '12px',
+                padding: '20px',
+                color: 'white',
+                marginBottom: '20px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <div>
+                  <h6 style={{ fontWeight: 700, marginBottom: '8px', fontSize: '16px' }}>
+                    📅 {selectedDay.date} ({selectedDay.day_of_week})
+                  </h6>
+                  <div style={{ display: 'flex', gap: '24px', fontSize: '14px' }}>
+                    <span>Present: <strong>{selectedDay.present}</strong></span>
+                    <span>Absent: <strong>{selectedDay.total_students - selectedDay.present}</strong></span>
+                    <span>Attendance: <strong>{selectedDay.percentage}%</strong></span>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setSelectedDay(null)} 
+                  style={{
+                    background: 'rgba(255,255,255,0.2)',
+                    color: 'white',
+                    border: '1px solid rgba(255,255,255,0.3)',
+                    borderRadius: '8px',
+                    padding: '8px 16px',
+                    cursor: 'pointer',
+                    fontWeight: 600
+                  }}
+                >
+                  Clear
+                </button>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Low Attendance Alert */}
-        {students.filter(s => s.attendance_rate < 50).length > 0 && (
-          <div className="alert alert-danger border-0 shadow-sm mb-4">
-            <h5 className="alert-heading fw-bold">⚠️ Low Attendance Alert</h5>
-            <p className="mb-3 fw-semibold">{students.filter(s => s.attendance_rate < 50).length} student(s) have attendance below 50%</p>
-            <div className="list-group">
-              {students.filter(s => s.attendance_rate < 50).slice(0, 5).map(student => (
-                <div key={student.student_id} className="list-group-item d-flex justify-content-between align-items-center">
-                  <div>
-                    <strong className="fs-6">{student.name}</strong> 
-                    <small className="text-muted ms-2">(Roll: {student.roll_no})</small>
-                  </div>
-                  <div className="d-flex align-items-center gap-3">
-                    <span className="badge bg-danger fs-6 px-3 py-2">{student.attendance_rate}%</span>
-                    <small className="text-muted fw-semibold">({student.present_days}/{student.total_days})</small>
-                  </div>
-                </div>
-              ))}
+{/* 🔴 Low Attendance Alert */}
+{students.filter(s => s.attendance_rate < 50).length > 0 && (
+  <div style={{
+    background: 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
+    borderRadius: '16px',
+    padding: '24px',
+    marginBottom: '32px',
+    border: '2px solid #fca5a5',
+    boxShadow: '0 4px 12px rgba(239, 68, 68, 0.15)'
+  }}>
+    <h5 style={{
+      fontWeight: 700,
+      color: '#991b1b',
+      marginBottom: '16px',
+      fontSize: '18px'
+    }}>
+      ⚠️ Low Attendance Alert
+    </h5>
+    <p style={{
+      color: '#7f1d1d',
+      fontWeight: 600,
+      marginBottom: '16px'
+    }}>
+      {students.filter(s => s.attendance_rate < 50).length} student(s) have attendance below 50%
+    </p>
+    
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+      gap: '12px'
+    }}>
+      {students.filter(s => s.attendance_rate < 50).map(student => (
+        <div 
+          key={student.student_id}
+          style={{
+            background: 'rgba(255, 255, 255, 0.7)',
+            padding: '16px',
+            borderRadius: '12px',
+            border: '1px solid #f5d5d5',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            transition: 'all 0.3s ease'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'white'
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(239, 68, 68, 0.15)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.7)'
+            e.currentTarget.style.boxShadow = 'none'
+          }}
+        >
+          <div>
+            <p style={{
+              fontWeight: 700,
+              color: '#1f2937',
+              marginBottom: '4px',
+              fontSize: '15px'
+            }}>
+              {student.name}
+            </p>
+            <p style={{
+              fontSize: '13px',
+              color: '#6b7280',
+              marginBottom: 0
+            }}>
+              Roll No: {student.roll_no}
+            </p>
+          </div>
+          
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px'
+          }}>
+            <div style={{
+              textAlign: 'right'
+            }}>
+              <span style={{
+                background: '#fee2e2',
+                color: '#991b1b',
+                padding: '8px 16px',
+                borderRadius: '10px',
+                fontWeight: 700,
+                fontSize: '16px',
+                display: 'inline-block'
+              }}>
+                {student.attendance_rate}%
+              </span>
+              <p style={{
+                fontSize: '12px',
+                color: '#6b7280',
+                marginTop: '4px',
+                marginBottom: 0
+              }}>
+                ({student.present_days}/{student.total_days} days)
+              </p>
             </div>
           </div>
-        )}
+        </div>
+      ))}
+    </div>
+
+    <div style={{
+      marginTop: '16px',
+      padding: '12px 16px',
+      background: 'rgba(0, 0, 0, 0.05)',
+      borderRadius: '10px',
+      fontSize: '13px',
+      color: '#7f1d1d'
+    }}>
+      💡 <strong>Action:</strong> Contact these students and parents to discuss attendance improvement plans.
+    </div>
+  </div>
+)}
+
 
         {/* Student Table */}
         {students.length > 0 && (
-          <div className="card border-0 shadow-sm">
-            <div className="card-header bg-white border-bottom">
-              <h5 className="card-title fw-bold mb-0 py-2">👨‍🎓 Student-wise Attendance</h5>
+          <div style={{
+            background: 'white',
+            borderRadius: '16px',
+            overflow: 'hidden',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
+          }}>
+            <div style={{
+              padding: '20px 24px',
+              borderBottom: '2px solid #f3f4f6'
+            }}>
+              <h5 style={{ fontWeight: 700, marginBottom: 0, color: '#1f2937' }}>👨‍🎓 Student Attendance</h5>
             </div>
-            <div className="card-body p-0">
-              <div className="table-responsive">
-                <table className="table table-hover mb-0 align-middle">
-                  <thead className="table-light">
-                    <tr>
-                      <th className="fw-bold">Roll No</th>
-                      <th className="fw-bold">Name</th>
-                      <th className="text-center fw-bold">Total Days</th>
-                      <th className="text-center fw-bold">Present</th>
-                      <th className="text-center fw-bold">Absent</th>
-                      <th className="text-center fw-bold">Attendance %</th>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#f9fafb', borderBottom: '2px solid #e5e7eb' }}>
+                    <th style={{ padding: '16px', textAlign: 'left', fontWeight: 700, color: '#374151' }}>Roll No</th>
+                    <th style={{ padding: '16px', textAlign: 'left', fontWeight: 700, color: '#374151' }}>Name</th>
+                    <th style={{ padding: '16px', textAlign: 'center', fontWeight: 700, color: '#374151' }}>Total</th>
+                    <th style={{ padding: '16px', textAlign: 'center', fontWeight: 700, color: '#10b981' }}>Present</th>
+                    <th style={{ padding: '16px', textAlign: 'center', fontWeight: 700, color: '#ef4444' }}>Absent</th>
+                    <th style={{ padding: '16px', textAlign: 'center', fontWeight: 700, color: '#667eea' }}>Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {students.map((student, idx) => (
+                    <tr key={student.student_id} style={{
+                      borderBottom: '1px solid #f3f4f6',
+                      background: idx % 2 === 0 ? 'white' : '#fafbfc',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = '#f3f4f6' }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = idx % 2 === 0 ? 'white' : '#fafbfc' }}
+                    >
+                      <td style={{ padding: '16px', fontWeight: 600, color: '#1f2937' }}>{student.roll_no}</td>
+                      <td style={{ padding: '16px', color: '#374151' }}>{student.name}</td>
+                      <td style={{ padding: '16px', textAlign: 'center', fontWeight: 600 }}>{student.total_days}</td>
+                      <td style={{ padding: '16px', textAlign: 'center', fontWeight: 700, color: '#10b981' }}>{student.present_days}</td>
+                      <td style={{ padding: '16px', textAlign: 'center', fontWeight: 700, color: '#ef4444' }}>{student.absent_days}</td>
+                      <td style={{ padding: '16px', textAlign: 'center' }}>
+                        <span style={{
+                          background: student.attendance_rate >= 75 ? '#d1fae5' : student.attendance_rate >= 50 ? '#fef3c7' : '#fee2e2',
+                          color: student.attendance_rate >= 75 ? '#065f46' : student.attendance_rate >= 50 ? '#92400e' : '#991b1b',
+                          padding: '6px 12px',
+                          borderRadius: '8px',
+                          fontWeight: 700,
+                          fontSize: '14px'
+                        }}>
+                          {student.attendance_rate}%
+                        </span>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {students.map(student => (
-                      <tr key={student.student_id}>
-                        <td className="fw-semibold">{student.roll_no}</td>
-                        <td className="fw-medium">{student.name}</td>
-                        <td className="text-center fw-semibold">{student.total_days}</td>
-                        <td className="text-center text-success fw-bold">{student.present_days}</td>
-                        <td className="text-center text-danger fw-bold">{student.absent_days}</td>
-                        <td className="text-center">
-                          <span className={`badge ${student.attendance_rate >= 75 ? 'bg-success' : student.attendance_rate >= 50 ? 'bg-warning' : 'bg-danger'} fs-6 px-3 py-2`}>
-                            {student.attendance_rate}%
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
       </div>
-
-      <style>{`
-        /* Button Hover - Only clickable buttons */
-        .btn-hover {
-          transition: all 0.3s ease;
-        }
-        .btn-hover:hover:not(:disabled) {
-          transform: translateY(-2px);
-          box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-        }
-        
-        /* Heatmap Cells - Improved interaction */
-        .heatmap-cell {
-          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-          font-weight: bold;
-        }
-        
-        .heatmap-clickable:hover {
-          transform: scale(1.15);
-          box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-          border-color: #3b82f6 !important;
-          z-index: 10;
-        }
-        
-        .heatmap-selected {
-          box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3);
-          transform: scale(1.1);
-        }
-        
-        .heatmap-disabled {
-          opacity: 0.4;
-        }
-        
-        /* Modal */
-        .modal.show {
-          display: block !important;
-        }
-        
-        /* Form Select Focus */
-        .form-select:focus {
-          border-color: #3b82f6;
-          box-shadow: 0 0 0 0.25rem rgba(59, 130, 246, 0.15);
-        }
-      `}</style>
     </div>
   )
 }
