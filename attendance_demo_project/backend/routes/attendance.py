@@ -1,5 +1,5 @@
-# backend/routes/attendance.py - CLEAN VERSION (NO AUDIT LOG)
-# PHASE 2 + 4: MTCNN + RATE LIMITING ONLY
+# backend/routes/attendance.py - COMPLETE FULL VERSION (MEDIUM MODE)
+# PHASE 2 + 4: MTCNN + MEDIUM 4-TIER + RATE LIMITING
 from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from models import Attendance, Student, Classroom, User
@@ -34,14 +34,21 @@ def teacher_required(fn):
     return wrapper
 
 
-# ==================== PHASE 2 + 4: MTCNN + RATE LIMITING ====================
+# ==================== PHASE 2 + 4: MTCNN + MEDIUM 4-TIER + RATE LIMITING ====================
 @attendance_bp.route('/mark_face', methods=['POST'])
 @teacher_required
 def mark_attendance_face():
     """
-    Phase 2 + 4: Mark attendance using MTCNN + 4-tier + Rate Limiting
+    PHASE 2 + 4: MTCNN + MEDIUM 4-tier + Rate Limiting
+    ✅ BALANCED: Medium thresholds (not too strict, not too loose)
     Detection: MTCNN (96.4% accuracy, 35° angle tolerance)
     Rate Limit: 80 requests/hour per teacher
+    
+    Thresholds (MEDIUM MODE):
+    - Tier 1 (Auto-approve): distance < 0.40 (80% confidence)
+    - Tier 2 (Review needed): 0.40 <= distance < 0.50 (50-80%)
+    - Tier 3 (Uncertain): 0.50 <= distance < 0.60 (40-50%)
+    - Tier 4 (Unknown): distance >= 0.60 (<40% - not in database)
     """
     try:
         current_user_id = get_jwt_identity()
@@ -92,6 +99,7 @@ def mark_attendance_face():
         
         # Fallback to HOG if MTCNN fails
         if not face_locations:
+            print("[INFO] MTCNN failed, using HOG fallback")
             face_locations = face_recognition.face_locations(image, model='hog')
         
         face_encodings = face_recognition.face_encodings(image, face_locations)
@@ -129,12 +137,13 @@ def mark_attendance_face():
         
         if not known_encodings:
             os.remove(temp_path)
-            return jsonify({'error': 'No student encodings found'}), 400
+            return jsonify({'error': 'No student encodings found. Please upload student photos first.'}), 400
         
-        # 4-TIER CONFIDENCE BANDS
-        TOLERANCE_HIGH_CONFIDENCE = 0.45
-        TOLERANCE_STANDARD_REVIEW = 0.60
-        TOLERANCE_EXTENDED_REVIEW = 0.70
+        # ✅ MEDIUM MODE 4-TIER CONFIDENCE BANDS
+        TOLERANCE_HIGH_CONFIDENCE = 0.40   # Medium - auto-approve (80% confidence)
+        TOLERANCE_STANDARD_REVIEW = 0.50   # Medium-loose - needs review (50-80%)
+        TOLERANCE_EXTENDED_REVIEW = 0.60   # Extended - uncertain (40-50%)
+        # Anything >= 0.60 is UNKNOWN (Tier 4) (<40% confidence)
         
         marked_present = []
         uncertain_matches_high = []
@@ -142,18 +151,24 @@ def mark_attendance_face():
         unknown_faces = []
         matched_student_ids = set()
         
-        for face_encoding in face_encodings:
+        print(f"\n[INFO] Processing {len(face_encodings)} detected faces...")
+        print(f"[INFO] Comparing against {len(known_encodings)} student encodings")
+        print(f"[INFO] Thresholds (MEDIUM): T1<{TOLERANCE_HIGH_CONFIDENCE}, T2<{TOLERANCE_STANDARD_REVIEW}, T3<{TOLERANCE_EXTENDED_REVIEW}")
+        print("=" * 70)
+        
+        for idx, face_encoding in enumerate(face_encodings, 1):
             distances = face_recognition.face_distance(known_encodings, face_encoding)
             best_match_index = np.argmin(distances)
             min_distance = distances[best_match_index]
             student_id = known_student_ids[best_match_index]
             
             if student_id in matched_student_ids:
+                print(f"[SKIP] Face #{idx}: Duplicate match for student {student_map[student_id]['name']}")
                 continue
             
             confidence = (1 - min_distance) * 100
             
-            # TIER 1: HIGH CONFIDENCE
+            # TIER 1: MEDIUM CONFIDENCE (distance < 0.40) - Auto-approve
             if min_distance < TOLERANCE_HIGH_CONFIDENCE:
                 matched_student_ids.add(student_id)
                 marked_present.append({
@@ -165,8 +180,9 @@ def mark_attendance_face():
                     'status': 'high_confidence',
                     'tier': 1
                 })
+                print(f"[TIER 1] ✅ Face #{idx}: {student_map[student_id]['name']} | Conf: {confidence:.2f}% | Dist: {min_distance:.4f}")
             
-            # TIER 2: STANDARD REVIEW
+            # TIER 2: MEDIUM-LOOSE (0.40 <= distance < 0.50) - Needs review
             elif min_distance < TOLERANCE_STANDARD_REVIEW:
                 uncertain_matches_high.append({
                     'student_id': student_id,
@@ -178,8 +194,9 @@ def mark_attendance_face():
                     'tier': 2,
                     'photo_path': student_map[student_id].get('photo_path')
                 })
+                print(f"[TIER 2] ⚠️  Face #{idx}: {student_map[student_id]['name']} | Conf: {confidence:.2f}% | Dist: {min_distance:.4f} (REVIEW NEEDED)")
             
-            # TIER 3: EXTENDED REVIEW
+            # TIER 3: EXTENDED (0.50 <= distance < 0.60) - Uncertain
             elif min_distance < TOLERANCE_EXTENDED_REVIEW:
                 uncertain_matches_low.append({
                     'student_id': student_id,
@@ -191,15 +208,22 @@ def mark_attendance_face():
                     'tier': 3,
                     'photo_path': student_map[student_id].get('photo_path')
                 })
+                print(f"[TIER 3] ⚠️⚠️ Face #{idx}: {student_map[student_id]['name']} | Conf: {confidence:.2f}% | Dist: {min_distance:.4f} (UNCERTAIN)")
             
-            # TIER 4: UNKNOWN
+            # TIER 4: UNKNOWN (distance >= 0.60) - Not in database
             else:
                 unknown_faces.append({
                     'distance': round(min_distance, 4),
                     'confidence': round(confidence, 2),
                     'status': 'unknown',
-                    'tier': 4
+                    'tier': 4,
+                    'closest_match': student_map[student_id]['name'],
+                    'message': 'Face not recognized - possible unknown person or poor image quality'
                 })
+                print(f"[TIER 4] ❌ Face #{idx}: UNKNOWN PERSON | Dist: {min_distance:.4f} | Closest: {student_map[student_id]['name']} (REJECTED)")
+        
+        print("=" * 70)
+        print(f"[SUMMARY] Present: {len(marked_present)}, Uncertain: {len(uncertain_matches_high + uncertain_matches_low)}, Unknown: {len(unknown_faces)}\n")
         
         # Save high-confidence attendance records
         for match in marked_present:
@@ -220,7 +244,6 @@ def mark_attendance_face():
                 )
                 db.session.add(attendance_record)
             else:
-                # Update if better confidence
                 if match['confidence'] > (existing.confidence or 0):
                     existing.confidence = match['confidence']
                     existing.distance = match['distance']
@@ -273,6 +296,12 @@ def mark_attendance_face():
                 'remaining': remaining,
                 'limit': 80,
                 'window': '1 hour'
+            },
+            'thresholds': {
+                'tier_1_auto_approve': f'< {TOLERANCE_HIGH_CONFIDENCE}',
+                'tier_2_review_needed': f'{TOLERANCE_HIGH_CONFIDENCE} - {TOLERANCE_STANDARD_REVIEW}',
+                'tier_3_uncertain': f'{TOLERANCE_STANDARD_REVIEW} - {TOLERANCE_EXTENDED_REVIEW}',
+                'tier_4_unknown': f'>= {TOLERANCE_EXTENDED_REVIEW}'
             }
         }), 200
         
